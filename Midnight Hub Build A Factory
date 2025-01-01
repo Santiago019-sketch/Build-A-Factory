@@ -1,0 +1,201 @@
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/xHeptc/Kavo-UI-Library/main/source.lua"))()
+local Window = Library.CreateLib("Mining Assistant", "DarkTheme")
+
+-- Services
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local VirtualUser = game:GetService("VirtualUser")
+
+-- Variables
+local player = Players.LocalPlayer
+local mining = false
+local autoSell = false
+local safeMode = true
+local miningPattern = "sequential" -- or "random"
+local sellInterval = 10 -- seconds between sells
+
+-- Safety Features
+local lastActionTime = tick()
+local actionDelays = {
+    mine = {min = 0.2, max = 0.5},
+    sell = {min = 1, max = 2}
+}
+
+-- Mining Grid Configuration
+local grid = {
+    minX = 1,
+    maxX = 10,
+    minY = 1,
+    maxY = 15
+}
+
+-- Function to get a random delay
+local function getRandomDelay(action)
+    if not safeMode then return actionDelays[action].min end
+    return math.random(actionDelays[action].min * 100, actionDelays[action].max * 100) / 100
+end
+
+-- Function to format mining coordinates
+local function formatCoords(x, y)
+    return string.format("%d_%d", x, y)
+end
+
+-- Mining Function
+local function mineBlock(coords)
+    if not mining then return end
+    
+    local args = {
+        [1] = coords
+    }
+    
+    local success, error = pcall(function()
+        ReplicatedStorage.Communication.MineBlock:InvokeServer(unpack(args))
+    end)
+    
+    if not success and safeMode then
+        wait(math.random(1, 3))
+    end
+end
+
+-- Selling Function
+local function sellItems()
+    if not autoSell then return end
+    
+    local success, error = pcall(function()
+        ReplicatedStorage.Communication.SellItems:InvokeServer()
+    end)
+    
+    if success then
+        print("Items sold successfully")
+    end
+end
+
+-- Generate mining patterns
+local function getNextMiningLocation()
+    if miningPattern == "random" then
+        return formatCoords(
+            math.random(grid.minX, grid.maxX),
+            math.random(grid.minY, grid.maxY)
+        )
+    else
+        -- Sequential pattern with current position tracking
+        if not getNextMiningLocation.currentX then
+            getNextMiningLocation.currentX = grid.minX
+            getNextMiningLocation.currentY = grid.minY
+        end
+        
+        local coords = formatCoords(getNextMiningLocation.currentX, getNextMiningLocation.currentY)
+        
+        getNextMiningLocation.currentX = getNextMiningLocation.currentX + 1
+        if getNextMiningLocation.currentX > grid.maxX then
+            getNextMiningLocation.currentX = grid.minX
+            getNextMiningLocation.currentY = getNextMiningLocation.currentY + 1
+            if getNextMiningLocation.currentY > grid.maxY then
+                getNextMiningLocation.currentY = grid.minY
+            end
+        end
+        
+        return coords
+    end
+end
+
+-- Main Mining Loop
+local function startMining()
+    local lastSellTime = tick()
+    
+    while mining do
+        local coords = getNextMiningLocation()
+        mineBlock(coords)
+        
+        -- Check if it's time to sell
+        if autoSell and tick() - lastSellTime >= sellInterval then
+            sellItems()
+            lastSellTime = tick()
+            wait(getRandomDelay("sell"))
+        end
+        
+        wait(getRandomDelay("mine"))
+    end
+end
+
+-- Anti-AFK
+local function setupAntiAFK()
+    player.Idled:Connect(function()
+        VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+        wait(0.1)
+        VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+    end)
+end
+
+-- GUI Creation
+local MiningTab = Window:NewTab("Mining")
+local MiningSection = MiningTab:NewSection("Mining Controls")
+
+MiningSection:NewToggle("Start/Stop Mining", "Toggles auto mining", function(state)
+    mining = state
+    if mining then
+        coroutine.wrap(startMining)()
+    end
+end)
+
+MiningSection:NewToggle("Auto Sell", "Automatically sells items", function(state)
+    autoSell = state
+end)
+
+MiningSection:NewSlider("Sell Interval", "Seconds between sells", 60, 5, function(value)
+    sellInterval = value
+end)
+
+MiningSection:NewDropdown("Mining Pattern", "Choose mining pattern", {"sequential", "random"}, function(selectedPattern)
+    miningPattern = selectedPattern
+    getNextMiningLocation.currentX = nil -- Reset position tracking
+end)
+
+local SafetyTab = Window:NewTab("Safety")
+local SafetySection = SafetyTab:NewSection("Safety Features")
+
+SafetySection:NewToggle("Safe Mode", "Adds random delays and patterns", function(state)
+    safeMode = state
+end)
+
+SafetySection:NewSlider("Min Mining Delay", "Minimum delay between actions", 1, 0.1, function(value)
+    actionDelays.mine.min = value
+end)
+
+SafetySection:NewSlider("Max Mining Delay", "Maximum delay between actions", 2, 0.2, function(value)
+    actionDelays.mine.max = value
+end)
+
+-- Status Display
+local StatusTab = Window:NewTab("Status")
+local StatusSection = StatusTab:NewSection("Mining Status")
+
+local statusLabel = StatusSection:NewLabel("Status: Idle")
+
+-- Update Status
+RunService.Heartbeat:Connect(function()
+    if mining then
+        statusLabel:UpdateLabel("Status: Mining" .. (autoSell and " (Auto-Selling Enabled)" or ""))
+    else
+        statusLabel:UpdateLabel("Status: Idle")
+    end
+end)
+
+-- Initialize
+setupAntiAFK()
+
+-- Keybinds
+game:GetService("UserInputService").InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.RightControl then
+        Library:ToggleUI()
+    end
+end)
+
+-- Error Recovery
+game:GetService("Players").PlayerRemoving:Connect(function(plr)
+    if plr == player then
+        mining = false
+        autoSell = false
+    end
+end)
