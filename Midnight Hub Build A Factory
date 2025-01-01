@@ -162,23 +162,18 @@ local function startDropLevelAutoUpgrade()
     end)()
 end
 
--- UI Creation
+-- Redesigned UI Creation
 local Window = OrionLib:MakeWindow({
-    Name = "Ultimate Worker Manager",
+    Name = "Worker Manager 2.0",
     HidePremium = false,
     SaveConfig = true,
-    ConfigFolder = "WorkerManagerConfig"
+    ConfigFolder = "WorkerManagerConfig",
+    IntroText = "Loading..."
 })
 
 -- Main Tabs
-local WorkerTab = Window:MakeTab({
-    Name = "Workers",
-    Icon = "rbxassetid://4483345998",
-    PremiumOnly = false
-})
-
-local UpgradeTab = Window:MakeTab({
-    Name = "Upgrades",
+local HomeTab = Window:MakeTab({
+    Name = "Home",
     Icon = "rbxassetid://4483345998",
     PremiumOnly = false
 })
@@ -195,11 +190,8 @@ local StatsTab = Window:MakeTab({
     PremiumOnly = false
 })
 
--- Worker Management Section
-local WorkerSection = WorkerTab:AddSection({
-    Name = "Worker Management"
-})
-
+-- Home Section
+local WorkerSection = HomeTab:AddSection({ Name = "Worker Management" })
 WorkerSection:AddDropdown({
     Name = "Select Worker",
     Default = "Worker1",
@@ -209,138 +201,66 @@ WorkerSection:AddDropdown({
     end    
 })
 
-WorkerSection:AddButton({
-    Name = "Upgrade Selected Worker",
-    Callback = function()
-        upgradeWorker(State.selectedWorker)
-    end
-})
-
-WorkerSection:AddButton({
-    Name = "Unlock Selected Worker",
-    Callback = function()
-        unlockWorker(State.selectedWorker)
-    end
-})
-
--- Upgrade Section
-local UpgradeSection = UpgradeTab:AddSection({
-    Name = "General Upgrades"
-})
-
-UpgradeSection:AddButton({
-    Name = "Upgrade Block Capacity",
-    Callback = function()
-        upgradeCapacity()
-    end
-})
-
-UpgradeSection:AddButton({
-    Name = "Upgrade Drop Level",
-    Callback = function()
-        upgradeDropLevel()
-    end
-})
+WorkerSection:AddButton({ Name = "Upgrade Worker", Callback = function() upgradeWorker(State.selectedWorker) end })
+WorkerSection:AddButton({ Name = "Unlock Worker", Callback = function() unlockWorker(State.selectedWorker) end })
 
 -- Automation Section
-local AutoSection = AutomationTab:AddSection({
-    Name = "Auto Upgrade Settings"
-})
-
-AutoSection:AddToggle({
-    Name = "Auto Upgrade Workers",
-    Default = false,
-    Callback = function(Value)
-        State.autoUpgradeWorkers = Value
-        if Value then
-            startWorkerAutoUpgrade()
-        end
-    end
-})
-
-AutoSection:AddToggle({
+local AutoSection = AutomationTab:AddSection({ Name = "Auto Upgrade Options" })AutoSection:AddToggle({
     Name = "Auto Unlock Workers",
-    Default = false,
-    Callback = function(Value)
-        State.autoUnlockWorkers = Value
-        if Value then
-            startAutoUnlock()
-        end
-    end
+    Callback = startAutoUnlock
 })
-
 AutoSection:AddToggle({
     Name = "Auto Upgrade Capacity",
-    Default = false,
-    Callback = function(Value)
-        State.autoUpgradeCapacity = Value
-        if Value then
-            startCapacityAutoUpgrade()
-        end
-    end
+    Callback = startCapacityAutoUpgrade
 })
-
 AutoSection:AddToggle({
     Name = "Auto Upgrade Drop Level",
-    Default = false,
-    Callback = function(Value)
-        State.autoUpgradeDropLevel = Value
-        if Value then
-            startDropLevelAutoUpgrade()
-        end
-    end
+    Callback = startDropLevelAutoUpgrade
 })
-
 AutoSection:AddSlider({
-    Name = "Upgrade Delay",
+    Name = "Upgrade Delay (sec)",
     Min = 0.1,
     Max = 5,
     Default = 0.5,
-    Color = Color3.fromRGB(255,255,255),
     Increment = 0.1,
-    ValueName = "seconds",
     Callback = function(Value)
         State.upgradeDelay = Value
     end
 })
 
 -- Statistics Section
-local StatsSection = StatsTab:AddSection({
-    Name = "Performance Statistics"
-})
+local StatsSection = StatsTab:AddSection({ Name = "Statistics Overview" })
+local statsLabel = StatsSection:AddLabel("Gathering statistics...")
 
--- Update statistics display
-local statsLabel = StatsSection:AddLabel("Loading statistics...")
-
+-- Update Stats
 coroutine.wrap(function()
     while wait(1) do
         local runtime = os.time() - Stats.startTime
-        local statsText = string.format(
-            "Runtime: %s\nWorkers Upgraded: %d\nCapacity Upgrades: %d\nDrop Level Upgrades: %d\nWorkers Unlocked: %d\nSuccess Rate: %.1f%%",
+        local successRate = Stats.successfulOperations / math.max(Stats.successfulOperations + Stats.failedOperations, 1) * 100
+        statsLabel:Set(string.format(
+            "Runtime: %s\nWorkers Upgraded: %d\nWorkers Unlocked: %d\nCapacity Upgrades: %d\nDrop Level Upgrades: %d\nSuccess Rate: %.2f%%",
             formatTime(runtime),
             Stats.workersUpgraded,
+            Stats.workersUnlocked,
             Stats.capacityUpgrades,
             Stats.dropLevelUpgrades,
-            Stats.workersUnlocked,
-            (Stats.successfulOperations / (Stats.successfulOperations + Stats.failedOperations + 0.1)) * 100
-        )
-        statsLabel:Set(statsText)
+            successRate
+        ))
     end
 end)()
 
--- Initialize
+-- Load Worker Data
 getWorkerData()
 
--- Notification for successful load
+-- Notification for Successful Load
 OrionLib:MakeNotification({
-    Name = "Script Loaded",
-    Content = "Ultimate Worker Manager is ready!",
-    Image = "rbxassetid://4483345998",
+    Name = "Welcome!",
+    Content = "Worker Manager 2.0 is ready.",
     Time = 5
 })
 
--- Cleanup
-game:GetService("Players").PlayerRemoving:Connect(function(plr)
+-- Cleanup on Player Leave
+Players.PlayerRemoving:Connect(function(plr)
     if plr == player then
         OrionLib:Destroy()
     end
