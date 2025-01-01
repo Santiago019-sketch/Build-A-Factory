@@ -1,163 +1,347 @@
-local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/xHeptc/Kavo-UI-Library/main/source.lua"))()
-local Window = Library.CreateLib("Worker Manager V1", "DarkTheme")
+-- Orion Library for enhanced UI
+local OrionLib = loadstring(game:HttpGet(('https://raw.githubusercontent.com/shlexware/Orion/main/source')))()
 
 -- Services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+-- Constants
+local WORKER_COUNT = 5
+local UPGRADE_TYPES = {
+    "BlockCapacity",
+    "DropLevel"
+}
+
+-- Variables
+local player = Players.LocalPlayer
 local Communication = ReplicatedStorage:WaitForChild("Communication")
 local DataStore = Communication:WaitForChild("DataStore")
 
--- Variables
-local upgrading = false
-local autoUpgrade = false
-local selectedWorker = "Worker1"
+-- State Management
+local State = {
+    autoUpgradeWorkers = false,
+    autoUpgradeCapacity = false,
+    autoUpgradeDropLevel = false,
+    autoUnlockWorkers = false,
+    upgradeDelay = 0.5,
+    unlockDelay = 1,
+    selectedWorker = "Worker1",
+    workerData = {},
+    totalUpgrades = 0,
+    lastUpgradeTime = 0
+}
 
--- Functions
+-- Statistics Tracking
+local Stats = {
+    workersUpgraded = 0,
+    capacityUpgrades = 0,
+    dropLevelUpgrades = 0,
+    workersUnlocked = 0,
+    startTime = os.time(),
+    successfulOperations = 0,
+    failedOperations = 0
+}
+
+-- Utility Functions
+local function formatTime(seconds)
+    local hours = math.floor(seconds / 3600)
+    local minutes = math.floor((seconds % 3600) / 60)
+    local secs = seconds % 60
+    return string.format("%02d:%02d:%02d", hours, minutes, secs)
+end
+
+local function logOperation(success, operationType)
+    if success then
+        Stats.successfulOperations = Stats.successfulOperations + 1
+    else
+        Stats.failedOperations = Stats.failedOperations + 1
+    end
+end
+
+-- Core Functions
 local function getWorkerData()
-    local args = {
-        [1] = "workerdata"
-    }
-    return DataStore.Get:InvokeServer(unpack(args))
+    local success, data = pcall(function()
+        return DataStore.Get:InvokeServer("workerdata")
+    end)
+    
+    if success and data then
+        State.workerData = data
+        return data
+    end
+    return nil
 end
 
 local function upgradeWorker(workerName)
-    local args = {
-        [1] = workerName
-    }
-    Communication.UpgradeWorker:FireServer(unpack(args))
+    local success, result = pcall(function()
+        Communication.UpgradeWorker:FireServer(workerName)
+    end)
+    logOperation(success, "worker_upgrade")
+    if success then
+        Stats.workersUpgraded = Stats.workersUpgraded + 1
+    end
+    return success
 end
 
 local function unlockWorker(workerName)
-    local args = {
-        [1] = workerName
-    }
-    Communication.Unlock:FireServer(unpack(args))
+    local success, result = pcall(function()
+        Communication.Unlock:FireServer(workerName)
+    end)
+    logOperation(success, "worker_unlock")
+    if success then
+        Stats.workersUnlocked = Stats.workersUnlocked + 1
+    end
+    return success
 end
 
 local function upgradeCapacity()
-    local args = {
-        [1] = "BlockCapacity"
-    }
-    Communication.Upgrade:FireServer(unpack(args))
+    local success, result = pcall(function()
+        Communication.Upgrade:FireServer("BlockCapacity")
+    end)
+    logOperation(success, "capacity_upgrade")
+    if success then
+        Stats.capacityUpgrades = Stats.capacityUpgrades + 1
+    end
+    return success
 end
 
 local function upgradeDropLevel()
-    local args = {
-        [1] = "DropLevel"
-    }
-    Communication.Upgrade:FireServer(unpack(args))
+    local success, result = pcall(function()
+        Communication.Upgrade:FireServer("DropLevel")
+    end)
+    logOperation(success, "drop_level_upgrade")
+    if success then
+        Stats.dropLevelUpgrades = Stats.dropLevelUpgrades + 1
+    end
+    return success
 end
 
--- Auto Upgrade Function
-local function startAutoUpgrade()
-    while autoUpgrade do
-        -- Try to upgrade all workers
-        for i = 1, 5 do
-            if not autoUpgrade then break end
-            local workerName = "Worker" .. i
-            
-            -- Try to unlock if not already unlocked
-            if i > 1 then
-                unlockWorker(workerName)
-                wait(0.5)
+-- Automation Coroutines
+local function startWorkerAutoUpgrade()
+    coroutine.wrap(function()
+        while State.autoUpgradeWorkers do
+            for i = 1, WORKER_COUNT do
+                if not State.autoUpgradeWorkers then break end
+                upgradeWorker("Worker" .. i)
+                wait(State.upgradeDelay)
             end
-            
-            -- Attempt upgrade
-            upgradeWorker(workerName)
-            wait(0.5)
+            wait(1)
         end
-        
-        -- Try general upgrades
-        upgradeCapacity()
-        wait(0.2)
-        upgradeDropLevel()
-        
-        wait(1) -- Delay between cycles
-    end
+    end)()
 end
 
--- GUI Creation
-local WorkerTab = Window:NewTab("Workers")
-local UpgradeTab = Window:NewTab("Upgrades")
-local AutoTab = Window:NewTab("Automation")
+local function startAutoUnlock()
+    coroutine.wrap(function()
+        while State.autoUnlockWorkers do
+            for i = 2, WORKER_COUNT do
+                if not State.autoUnlockWorkers then break end
+                unlockWorker("Worker" .. i)
+                wait(State.unlockDelay)
+            end
+            wait(2)
+        end
+    end)()
+end
 
--- Worker Section
-local WorkerSection = WorkerTab:NewSection("Worker Management")
+local function startCapacityAutoUpgrade()
+    coroutine.wrap(function()
+        while State.autoUpgradeCapacity do
+            upgradeCapacity()
+            wait(State.upgradeDelay)
+        end
+    end)()
+end
 
--- Worker Selection Dropdown
-WorkerSection:NewDropdown("Select Worker", "Choose worker to manage", 
-    {"Worker1", "Worker2", "Worker3", "Worker4", "Worker5"}, 
-    function(selected)
-        selectedWorker = selected
+local function startDropLevelAutoUpgrade()
+    coroutine.wrap(function()
+        while State.autoUpgradeDropLevel do
+            upgradeDropLevel()
+            wait(State.upgradeDelay)
+        end
+    end)()
+end
+
+-- UI Creation
+local Window = OrionLib:MakeWindow({
+    Name = "Ultimate Worker Manager",
+    HidePremium = false,
+    SaveConfig = true,
+    ConfigFolder = "WorkerManagerConfig"
+})
+
+-- Main Tabs
+local WorkerTab = Window:MakeTab({
+    Name = "Workers",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
+
+local UpgradeTab = Window:MakeTab({
+    Name = "Upgrades",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
+
+local AutomationTab = Window:MakeTab({
+    Name = "Automation",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
+
+local StatsTab = Window:MakeTab({
+    Name = "Statistics",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
+
+-- Worker Management Section
+local WorkerSection = WorkerTab:AddSection({
+    Name = "Worker Management"
+})
+
+WorkerSection:AddDropdown({
+    Name = "Select Worker",
+    Default = "Worker1",
+    Options = {"Worker1", "Worker2", "Worker3", "Worker4", "Worker5"},
+    Callback = function(Value)
+        State.selectedWorker = Value
+    end    
+})
+
+WorkerSection:AddButton({
+    Name = "Upgrade Selected Worker",
+    Callback = function()
+        upgradeWorker(State.selectedWorker)
     end
-)
+})
 
--- Individual Worker Actions
-WorkerSection:NewButton("Upgrade Selected Worker", "Upgrades currently selected worker", function()
-    upgradeWorker(selectedWorker)
-end)
-
-WorkerSection:NewButton("Unlock Selected Worker", "Attempts to unlock selected worker", function()
-    unlockWorker(selectedWorker)
-end)
-
--- Quick Actions Section
-local QuickSection = WorkerTab:NewSection("Quick Actions")
-
-QuickSection:NewButton("Upgrade All Workers", "Attempts to upgrade all workers", function()
-    for i = 1, 5 do
-        upgradeWorker("Worker" .. i)
-        wait(0.2)
+WorkerSection:AddButton({
+    Name = "Unlock Selected Worker",
+    Callback = function()
+        unlockWorker(State.selectedWorker)
     end
-end)
+})
 
-QuickSection:NewButton("Unlock All Workers", "Attempts to unlock all workers", function()
-    for i = 2, 5 do
-        unlockWorker("Worker" .. i)
-        wait(0.2)
+-- Upgrade Section
+local UpgradeSection = UpgradeTab:AddSection({
+    Name = "General Upgrades"
+})
+
+UpgradeSection:AddButton({
+    Name = "Upgrade Block Capacity",
+    Callback = function()
+        upgradeCapacity()
     end
-end)
+})
 
--- Upgrades Section
-local UpgradeSection = UpgradeTab:NewSection("General Upgrades")
-
-UpgradeSection:NewButton("Upgrade Block Capacity", "Increases block capacity", function()
-    upgradeCapacity()
-end)
-
-UpgradeSection:NewButton("Upgrade Drop Level", "Increases drop level", function()
-    upgradeDropLevel()
-end)
+UpgradeSection:AddButton({
+    Name = "Upgrade Drop Level",
+    Callback = function()
+        upgradeDropLevel()
+    end
+})
 
 -- Automation Section
-local AutoSection = AutoTab:NewSection("Auto Upgrade")
+local AutoSection = AutomationTab:AddSection({
+    Name = "Auto Upgrade Settings"
+})
 
-AutoSection:NewToggle("Auto Upgrade Everything", "Automatically upgrades all possible items", function(state)
-    autoUpgrade = state
-    if autoUpgrade then
-        coroutine.wrap(startAutoUpgrade)()
+AutoSection:AddToggle({
+    Name = "Auto Upgrade Workers",
+    Default = false,
+    Callback = function(Value)
+        State.autoUpgradeWorkers = Value
+        if Value then
+            startWorkerAutoUpgrade()
+        end
     end
-end)
+})
 
--- Settings Section
-local SettingsSection = AutoTab:NewSection("Settings")
+AutoSection:AddToggle({
+    Name = "Auto Unlock Workers",
+    Default = false,
+    Callback = function(Value)
+        State.autoUnlockWorkers = Value
+        if Value then
+            startAutoUnlock()
+        end
+    end
+})
 
-SettingsSection:NewSlider("Upgrade Delay", "Delay between upgrades (seconds)", 5, 0.1, function(value)
-    upgradeDelay = value
-end)
+AutoSection:AddToggle({
+    Name = "Auto Upgrade Capacity",
+    Default = false,
+    Callback = function(Value)
+        State.autoUpgradeCapacity = Value
+        if Value then
+            startCapacityAutoUpgrade()
+        end
+    end
+})
+
+AutoSection:AddToggle({
+    Name = "Auto Upgrade Drop Level",
+    Default = false,
+    Callback = function(Value)
+        State.autoUpgradeDropLevel = Value
+        if Value then
+            startDropLevelAutoUpgrade()
+        end
+    end
+})
+
+AutoSection:AddSlider({
+    Name = "Upgrade Delay",
+    Min = 0.1,
+    Max = 5,
+    Default = 0.5,
+    Color = Color3.fromRGB(255,255,255),
+    Increment = 0.1,
+    ValueName = "seconds",
+    Callback = function(Value)
+        State.upgradeDelay = Value
+    end
+})
+
+-- Statistics Section
+local StatsSection = StatsTab:AddSection({
+    Name = "Performance Statistics"
+})
+
+-- Update statistics display
+local statsLabel = StatsSection:AddLabel("Loading statistics...")
+
+coroutine.wrap(function()
+    while wait(1) do
+        local runtime = os.time() - Stats.startTime
+        local statsText = string.format(
+            "Runtime: %s\nWorkers Upgraded: %d\nCapacity Upgrades: %d\nDrop Level Upgrades: %d\nWorkers Unlocked: %d\nSuccess Rate: %.1f%%",
+            formatTime(runtime),
+            Stats.workersUpgraded,
+            Stats.capacityUpgrades,
+            Stats.dropLevelUpgrades,
+            Stats.workersUnlocked,
+            (Stats.successfulOperations / (Stats.successfulOperations + Stats.failedOperations + 0.1)) * 100
+        )
+        statsLabel:Set(statsText)
+    end
+end)()
 
 -- Initialize
-local function initialize()
-    pcall(function()
-        local data = getWorkerData()
-        print("Worker data loaded")
-    end)
-end
+getWorkerData()
 
-initialize()
+-- Notification for successful load
+OrionLib:MakeNotification({
+    Name = "Script Loaded",
+    Content = "Ultimate Worker Manager is ready!",
+    Image = "rbxassetid://4483345998",
+    Time = 5
+})
 
--- Keybinds
-game:GetService("UserInputService").InputBegan:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.RightControl then
-        Library:ToggleUI()
+-- Cleanup
+game:GetService("Players").PlayerRemoving:Connect(function(plr)
+    if plr == player then
+        OrionLib:Destroy()
     end
 end)
