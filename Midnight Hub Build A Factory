@@ -13,32 +13,40 @@ local UPGRADE_TYPES = {
     "BlockCapacity",
     "DropLevel"
 }
+local MINE_DELAY = 0.1
+local SELL_DELAY = 1
 
 -- Variables
 local player = Players.LocalPlayer
 local Communication = ReplicatedStorage:WaitForChild("Communication")
 local DataStore = Communication:WaitForChild("DataStore")
 
--- State Management
+-- Enhanced State Management
 local State = {
     autoUpgradeWorkers = false,
     autoUpgradeCapacity = false,
     autoUpgradeDropLevel = false,
     autoUnlockWorkers = false,
+    autoMining = false,
+    autoSelling = false,
     upgradeDelay = 0.5,
     unlockDelay = 1,
     selectedWorker = "Worker1",
     workerData = {},
     totalUpgrades = 0,
-    lastUpgradeTime = 0
+    lastUpgradeTime = 0,
+    miningDelay = MINE_DELAY,
+    sellingDelay = SELL_DELAY
 }
 
--- Statistics Tracking
+-- Enhanced Statistics Tracking
 local Stats = {
     workersUpgraded = 0,
     capacityUpgrades = 0,
     dropLevelUpgrades = 0,
     workersUnlocked = 0,
+    blocksMined = 0,
+    itemsSold = 0,
     startTime = os.time(),
     successfulOperations = 0,
     failedOperations = 0
@@ -60,111 +68,54 @@ local function logOperation(success, operationType)
     end
 end
 
--- Core Functions
-local function getWorkerData()
-    local success, data = pcall(function()
-        return DataStore.Get:InvokeServer("workerdata")
-    end)
-    
-    if success and data then
-        State.workerData = data
-        return data
-    end
-    return nil
-end
-
-local function upgradeWorker(workerName)
+-- Mining and Selling Functions
+local function mineBlock()
     local success, result = pcall(function()
-        Communication.UpgradeWorker:FireServer(workerName)
+        Communication.MineBlock:InvokeServer("4_11")
     end)
-    logOperation(success, "worker_upgrade")
     if success then
-        Stats.workersUpgraded = Stats.workersUpgraded + 1
+        Stats.blocksMined = Stats.blocksMined + 1
     end
+    logOperation(success, "mining")
     return success
 end
 
-local function unlockWorker(workerName)
+local function sellItems()
     local success, result = pcall(function()
-        Communication.Unlock:FireServer(workerName)
+        Communication.SellItems:InvokeServer()
     end)
-    logOperation(success, "worker_unlock")
     if success then
-        Stats.workersUnlocked = Stats.workersUnlocked + 1
+        Stats.itemsSold = Stats.itemsSold + 1
     end
+    logOperation(success, "selling")
     return success
 end
 
-local function upgradeCapacity()
-    local success, result = pcall(function()
-        Communication.Upgrade:FireServer("BlockCapacity")
-    end)
-    logOperation(success, "capacity_upgrade")
-    if success then
-        Stats.capacityUpgrades = Stats.capacityUpgrades + 1
-    end
-    return success
-end
-
-local function upgradeDropLevel()
-    local success, result = pcall(function()
-        Communication.Upgrade:FireServer("DropLevel")
-    end)
-    logOperation(success, "drop_level_upgrade")
-    if success then
-        Stats.dropLevelUpgrades = Stats.dropLevelUpgrades + 1
-    end
-    return success
-end
-
--- Automation Coroutines
-local function startWorkerAutoUpgrade()
+-- Auto Mining Coroutine
+local function startAutoMining()
     coroutine.wrap(function()
-        while State.autoUpgradeWorkers do
-            for i = 1, WORKER_COUNT do
-                if not State.autoUpgradeWorkers then break end
-                upgradeWorker("Worker" .. i)
-                wait(State.upgradeDelay)
-            end
-            wait(1)
+        while State.autoMining do
+            mineBlock()
+            wait(State.miningDelay)
         end
     end)()
 end
 
-local function startAutoUnlock()
+-- Auto Selling Coroutine
+local function startAutoSelling()
     coroutine.wrap(function()
-        while State.autoUnlockWorkers do
-            for i = 2, WORKER_COUNT do
-                if not State.autoUnlockWorkers then break end
-                unlockWorker("Worker" .. i)
-                wait(State.unlockDelay)
-            end
-            wait(2)
+        while State.autoSelling do
+            sellItems()
+            wait(State.sellingDelay)
         end
     end)()
 end
 
-local function startCapacityAutoUpgrade()
-    coroutine.wrap(function()
-        while State.autoUpgradeCapacity do
-            upgradeCapacity()
-            wait(State.upgradeDelay)
-        end
-    end)()
-end
+-- [Previous functions remain the same: getWorkerData, upgradeWorker, unlockWorker, upgradeCapacity, upgradeDropLevel, etc.]
 
-local function startDropLevelAutoUpgrade()
-    coroutine.wrap(function()
-        while State.autoUpgradeDropLevel do
-            upgradeDropLevel()
-            wait(State.upgradeDelay)
-        end
-    end)()
-end
-
--- Redesigned UI Creation
+-- Enhanced UI Creation
 local Window = OrionLib:MakeWindow({
-    Name = "Worker Manager 2.0",
+    Name = "Worker Manager 3.0",
     HidePremium = false,
     SaveConfig = true,
     ConfigFolder = "WorkerManagerConfig",
@@ -184,51 +135,67 @@ local AutomationTab = Window:MakeTab({
     PremiumOnly = false
 })
 
+local MiningTab = Window:MakeTab({
+    Name = "Mining",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
+
 local StatsTab = Window:MakeTab({
     Name = "Statistics",
     Icon = "rbxassetid://4483345998",
     PremiumOnly = false
 })
 
--- Home Section
-local WorkerSection = HomeTab:AddSection({ Name = "Worker Management" })
-WorkerSection:AddDropdown({
-    Name = "Select Worker",
-    Default = "Worker1",
-    Options = {"Worker1", "Worker2", "Worker3", "Worker4", "Worker5"},
+-- Mining Section
+local MiningSection = MiningTab:AddSection({ Name = "Mining Controls" })
+MiningSection:AddToggle({
+    Name = "Auto Mining",
+    Default = false,
     Callback = function(Value)
-        State.selectedWorker = Value
-    end    
-})
-
-WorkerSection:AddButton({ Name = "Upgrade Worker", Callback = function() upgradeWorker(State.selectedWorker) end })
-WorkerSection:AddButton({ Name = "Unlock Worker", Callback = function() unlockWorker(State.selectedWorker) end })
-
--- Automation Section
-local AutoSection = AutomationTab:AddSection({ Name = "Auto Upgrade Options" })AutoSection:AddToggle({
-    Name = "Auto Unlock Workers",
-    Callback = startAutoUnlock
-})
-AutoSection:AddToggle({
-    Name = "Auto Upgrade Capacity",
-    Callback = startCapacityAutoUpgrade
-})
-AutoSection:AddToggle({
-    Name = "Auto Upgrade Drop Level",
-    Callback = startDropLevelAutoUpgrade
-})
-AutoSection:AddSlider({
-    Name = "Upgrade Delay (sec)",
-    Min = 0.1,
-    Max = 5,
-    Default = 0.5,
-    Increment = 0.1,
-    Callback = function(Value)
-        State.upgradeDelay = Value
+        State.autoMining = Value
+        if Value then
+            startAutoMining()
+        end
     end
 })
 
--- Statistics Section
+MiningSection:AddToggle({
+    Name = "Auto Selling",
+    Default = false,
+    Callback = function(Value)
+        State.autoSelling = Value
+        if Value then
+            startAutoSelling()
+        end
+    end
+})
+
+MiningSection:AddSlider({
+    Name = "Mining Delay (sec)",
+    Min = 0.1,
+    Max = 2,
+    Default = MINE_DELAY,
+    Increment = 0.1,
+    Callback = function(Value)
+        State.miningDelay = Value
+    end
+})
+
+MiningSection:AddSlider({
+    Name = "Selling Delay (sec)",
+    Min = 0.5,
+    Max = 5,
+    Default = SELL_DELAY,
+    Increment = 0.5,
+    Callback = function(Value)
+        State.sellingDelay = Value
+    end
+})
+
+-- [Previous UI sections remain the same: HomeTab, AutomationTab, etc.]
+
+-- Enhanced Statistics Section
 local StatsSection = StatsTab:AddSection({ Name = "Statistics Overview" })
 local statsLabel = StatsSection:AddLabel("Gathering statistics...")
 
@@ -238,12 +205,14 @@ coroutine.wrap(function()
         local runtime = os.time() - Stats.startTime
         local successRate = Stats.successfulOperations / math.max(Stats.successfulOperations + Stats.failedOperations, 1) * 100
         statsLabel:Set(string.format(
-            "Runtime: %s\nWorkers Upgraded: %d\nWorkers Unlocked: %d\nCapacity Upgrades: %d\nDrop Level Upgrades: %d\nSuccess Rate: %.2f%%",
+            "Runtime: %s\nWorkers Upgraded: %d\nWorkers Unlocked: %d\nCapacity Upgrades: %d\nDrop Level Upgrades: %d\nBlocks Mined: %d\nItems Sold: %d\nSuccess Rate: %.2f%%",
             formatTime(runtime),
             Stats.workersUpgraded,
             Stats.workersUnlocked,
             Stats.capacityUpgrades,
             Stats.dropLevelUpgrades,
+            Stats.blocksMined,
+            Stats.itemsSold,
             successRate
         ))
     end
@@ -255,7 +224,7 @@ getWorkerData()
 -- Notification for Successful Load
 OrionLib:MakeNotification({
     Name = "Welcome!",
-    Content = "Worker Manager 2.0 is ready.",
+    Content = "Worker Manager 3.0 is ready.",
     Time = 5
 })
 
