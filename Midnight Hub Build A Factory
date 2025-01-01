@@ -1,117 +1,163 @@
 local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/xHeptc/Kavo-UI-Library/main/source.lua"))()
-local Window = Library.CreateLib("Mining Helper V2", "DarkTheme")
+local Window = Library.CreateLib("Worker Manager V1", "DarkTheme")
 
 -- Services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
+local Communication = ReplicatedStorage:WaitForChild("Communication")
+local DataStore = Communication:WaitForChild("DataStore")
 
 -- Variables
-local player = Players.LocalPlayer
-local mining = false
-local autoSell = false
-local miningDelay = 0.2
-local sellDelay = 5
+local upgrading = false
+local autoUpgrade = false
+local selectedWorker = "Worker1"
 
--- Communication Functions
-local function mineBlock(coordX, coordY)
+-- Functions
+local function getWorkerData()
     local args = {
-        [1] = coordX .. "_" .. coordY
+        [1] = "workerdata"
     }
-    
-    return ReplicatedStorage.Communication.MineBlock:InvokeServer(unpack(args))
+    return DataStore.Get:InvokeServer(unpack(args))
 end
 
-local function sellItems()
-    return ReplicatedStorage.Communication.SellItems:InvokeServer()
+local function upgradeWorker(workerName)
+    local args = {
+        [1] = workerName
+    }
+    Communication.UpgradeWorker:FireServer(unpack(args))
 end
 
--- Main Mining Function
-local function startMining()
-    while mining do
-        -- Mine in a specific pattern (4x4 area example)
-        for x = 4, 11 do  -- X coordinates
-            for y = 1, 15 do  -- Y coordinates
-                if not mining then return end
-                
-                -- Attempt to mine the block
-                local success, result = pcall(function()
-                    mineBlock(x, y)
-                end)
-                
-                -- If auto-sell is enabled, try to sell
-                if autoSell then
-                    pcall(sellItems)
-                end
-                
-                -- Add a small delay between actions
-                wait(miningDelay)
+local function unlockWorker(workerName)
+    local args = {
+        [1] = workerName
+    }
+    Communication.Unlock:FireServer(unpack(args))
+end
+
+local function upgradeCapacity()
+    local args = {
+        [1] = "BlockCapacity"
+    }
+    Communication.Upgrade:FireServer(unpack(args))
+end
+
+local function upgradeDropLevel()
+    local args = {
+        [1] = "DropLevel"
+    }
+    Communication.Upgrade:FireServer(unpack(args))
+end
+
+-- Auto Upgrade Function
+local function startAutoUpgrade()
+    while autoUpgrade do
+        -- Try to upgrade all workers
+        for i = 1, 5 do
+            if not autoUpgrade then break end
+            local workerName = "Worker" .. i
+            
+            -- Try to unlock if not already unlocked
+            if i > 1 then
+                unlockWorker(workerName)
+                wait(0.5)
             end
+            
+            -- Attempt upgrade
+            upgradeWorker(workerName)
+            wait(0.5)
         end
         
-        -- Add a delay before starting the next cycle
-        wait(1)
+        -- Try general upgrades
+        upgradeCapacity()
+        wait(0.2)
+        upgradeDropLevel()
+        
+        wait(1) -- Delay between cycles
     end
 end
 
 -- GUI Creation
-local MiningTab = Window:NewTab("Mining")
-local MiningSection = MiningTab:NewSection("Controls")
+local WorkerTab = Window:NewTab("Workers")
+local UpgradeTab = Window:NewTab("Upgrades")
+local AutoTab = Window:NewTab("Automation")
 
--- Mining Toggle
-MiningSection:NewToggle("Start/Stop Mining", "Toggles auto mining", function(state)
-    mining = state
-    if mining then
-        coroutine.wrap(startMining)()
+-- Worker Section
+local WorkerSection = WorkerTab:NewSection("Worker Management")
+
+-- Worker Selection Dropdown
+WorkerSection:NewDropdown("Select Worker", "Choose worker to manage", 
+    {"Worker1", "Worker2", "Worker3", "Worker4", "Worker5"}, 
+    function(selected)
+        selectedWorker = selected
     end
+)
+
+-- Individual Worker Actions
+WorkerSection:NewButton("Upgrade Selected Worker", "Upgrades currently selected worker", function()
+    upgradeWorker(selectedWorker)
 end)
 
--- Auto Sell Toggle
-MiningSection:NewToggle("Auto Sell", "Automatically sells items", function(state)
-    autoSell = state
-end)
-
--- Mining Delay Slider
-MiningSection:NewSlider("Mining Delay", "Adjust mining speed", 1, 0.1, function(value)
-    miningDelay = value
-end)
-
--- Sell Delay Slider
-MiningSection:NewSlider("Sell Delay", "Adjust sell frequency", 10, 1, function(value)
-    sellDelay = value
+WorkerSection:NewButton("Unlock Selected Worker", "Attempts to unlock selected worker", function()
+    unlockWorker(selectedWorker)
 end)
 
 -- Quick Actions Section
-local QuickSection = MiningTab:NewSection("Quick Actions")
+local QuickSection = WorkerTab:NewSection("Quick Actions")
 
--- Manual Sell Button
-QuickSection:NewButton("Sell Items", "Manually sell all items", function()
-    sellItems()
-end)
-
--- Status Section
-local StatusSection = MiningTab:NewSection("Status")
-local statusLabel = StatusSection:NewLabel("Status: Idle")
-
--- Update Status
-RunService.Heartbeat:Connect(function()
-    if mining then
-        statusLabel:UpdateLabel("Status: Mining" .. (autoSell and " (Auto-Sell ON)" or ""))
-    else
-        statusLabel:UpdateLabel("Status: Idle")
+QuickSection:NewButton("Upgrade All Workers", "Attempts to upgrade all workers", function()
+    for i = 1, 5 do
+        upgradeWorker("Worker" .. i)
+        wait(0.2)
     end
 end)
+
+QuickSection:NewButton("Unlock All Workers", "Attempts to unlock all workers", function()
+    for i = 2, 5 do
+        unlockWorker("Worker" .. i)
+        wait(0.2)
+    end
+end)
+
+-- Upgrades Section
+local UpgradeSection = UpgradeTab:NewSection("General Upgrades")
+
+UpgradeSection:NewButton("Upgrade Block Capacity", "Increases block capacity", function()
+    upgradeCapacity()
+end)
+
+UpgradeSection:NewButton("Upgrade Drop Level", "Increases drop level", function()
+    upgradeDropLevel()
+end)
+
+-- Automation Section
+local AutoSection = AutoTab:NewSection("Auto Upgrade")
+
+AutoSection:NewToggle("Auto Upgrade Everything", "Automatically upgrades all possible items", function(state)
+    autoUpgrade = state
+    if autoUpgrade then
+        coroutine.wrap(startAutoUpgrade)()
+    end
+end)
+
+-- Settings Section
+local SettingsSection = AutoTab:NewSection("Settings")
+
+SettingsSection:NewSlider("Upgrade Delay", "Delay between upgrades (seconds)", 5, 0.1, function(value)
+    upgradeDelay = value
+end)
+
+-- Initialize
+local function initialize()
+    pcall(function()
+        local data = getWorkerData()
+        print("Worker data loaded")
+    end)
+end
+
+initialize()
 
 -- Keybinds
 game:GetService("UserInputService").InputBegan:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.RightControl then
         Library:ToggleUI()
-    end
-end)
-
--- Error handling
-game:GetService("Players").PlayerRemoving:Connect(function(plr)
-    if plr == player then
-        mining = false
     end
 end)
