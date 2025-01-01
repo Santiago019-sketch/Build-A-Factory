@@ -6,294 +6,71 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 
 -- Variables
-local player = Players.LocalPlayer
 local Communication = ReplicatedStorage:WaitForChild("Communication")
+local Remotes = {
+    mine = Communication:WaitForChild("MineBlock"),
+    sell = Communication:WaitForChild("SellItems")
+}
 
--- State Management
-local State = {
+-- State
+local Mining = {
     autoMine = false,
-    autoSell = false,
-    autoUpgradeWorkers = false,
-    autoUnlockWorkers = false,
-    autoUpgradeCapacity = false,
-    autoUpgradeDropLevel = false,
-    mineDelay = 0.1,
-    sellDelay = 1,
-    upgradeDelay = 0.5
+    autoSell = false
 }
 
--- Stats Tracking
-local Stats = {
-    blocksMined = 0,
-    itemsSold = 0,
-    workersUpgraded = 0,
-    workersUnlocked = 0,
-    startTime = os.time()
-}
-
--- Core Functions
+-- Simple Mining Function
 local function mineBlock()
-    local args = {
-        [1] = "4_11"
-    }
-    local success = pcall(function()
-        Communication.MineBlock:InvokeServer(unpack(args))
-    end)
-    if success then Stats.blocksMined = Stats.blocksMined + 1 end
+    Remotes.mine:InvokeServer("4_11")
 end
 
+-- Simple Selling Function
 local function sellItems()
-    local success = pcall(function()
-        Communication.SellItems:InvokeServer()
-    end)
-    if success then Stats.itemsSold = Stats.itemsSold + 1 end
+    Remotes.sell:InvokeServer()
 end
 
-local function upgradeWorker(workerName)
-    pcall(function()
-        Communication.UpgradeWorker:FireServer(workerName)
-        Stats.workersUpgraded = Stats.workersUpgraded + 1
-    end)
-end
-
-local function unlockWorker(workerName)
-    pcall(function()
-        Communication.Unlock:FireServer(workerName)
-        Stats.workersUnlocked = Stats.workersUnlocked + 1
-    end)
-end
-
-local function upgradeCapacity()
-    pcall(function()
-        Communication.Upgrade:FireServer("BlockCapacity")
-    end)
-end
-
-local function upgradeDropLevel()
-    pcall(function()
-        Communication.Upgrade:FireServer("DropLevel")
-    end)
-end
-
--- Automation Coroutines
-local function startAutoMine()
-    coroutine.wrap(function()
-        while State.autoMine do
-            mineBlock()
-            task.wait(State.mineDelay)
-        end
-    end)()
-end
-
-local function startAutoSell()
-    coroutine.wrap(function()
-        while State.autoSell do
-            sellItems()
-            task.wait(State.sellDelay)
-        end
-    end)()
-end
-
-local function startWorkerUpgrade()
-    coroutine.wrap(function()
-        while State.autoUpgradeWorkers do
-            for i = 1, 5 do
-                upgradeWorker("Worker" .. i)
-                task.wait(State.upgradeDelay)
-            end
-            task.wait(1)
-        end
-    end)()
-end
-
-local function startWorkerUnlock()
-    coroutine.wrap(function()
-        while State.autoUnlockWorkers do
-            for i = 2, 5 do
-                unlockWorker("Worker" .. i)
-                task.wait(1)
-            end
-            task.wait(2)
-        end
-    end)()
-end
-
-local function startCapacityUpgrade()
-    coroutine.wrap(function()
-        while State.autoUpgradeCapacity do
-            upgradeCapacity()
-            task.wait(State.upgradeDelay)
-        end
-    end)()
-end
-
-local function startDropLevelUpgrade()
-    coroutine.wrap(function()
-        while State.autoUpgradeDropLevel do
-            upgradeDropLevel()
-            task.wait(State.upgradeDelay)
-        end
-    end)()
-end
-
--- UI Creation
+-- Create Window
 local Window = OrionLib:MakeWindow({
-    Name = "Mining Automation",
+    Name = "Simple Mining",
     HidePremium = false,
-    SaveConfig = true,
-    ConfigFolder = "MiningAutomation"
+    SaveConfig = true
 })
 
--- Mining Tab
+-- Create Tab
 local MiningTab = Window:MakeTab({
     Name = "Mining",
     Icon = "rbxassetid://4483345998"
 })
 
-local MiningSection = MiningTab:AddSection({
-    Name = "Mining Controls"
-})
-
-MiningSection:AddToggle({
+-- Add Mining Controls
+MiningTab:AddToggle({
     Name = "Auto Mine",
     Default = false,
     Callback = function(Value)
-        State.autoMine = Value
-        if Value then startAutoMine() end
+        Mining.autoMine = Value
+        if Value then
+            while Mining.autoMine and task.wait(0.1) do
+                mineBlock()
+            end
+        end
     end
 })
 
-MiningSection:AddToggle({
+MiningTab:AddToggle({
     Name = "Auto Sell",
     Default = false,
     Callback = function(Value)
-        State.autoSell = Value
-        if Value then startAutoSell() end
+        Mining.autoSell = Value
+        if Value then
+            while Mining.autoSell and task.wait(1) do
+                sellItems()
+            end
+        end
     end
 })
-
-MiningSection:AddSlider({
-    Name = "Mine Delay",
-    Min = 0.1,
-    Max = 2,
-    Default = 0.1,
-    Color = Color3.fromRGB(255,255,255),
-    Increment = 0.1,
-    Callback = function(Value)
-        State.mineDelay = Value
-    end    
-})
-
-MiningSection:AddSlider({
-    Name = "Sell Delay",
-    Min = 0.1,
-    Max = 5,
-    Default = 1,
-    Color = Color3.fromRGB(255,255,255),
-    Increment = 0.1,
-    Callback = function(Value)
-        State.sellDelay = Value
-    end    
-})
-
--- Workers Tab
-local WorkersTab = Window:MakeTab({
-    Name = "Workers",
-    Icon = "rbxassetid://4483345998"
-})
-
-local WorkerSection = WorkersTab:AddSection({
-    Name = "Worker Management"
-})
-
-WorkerSection:AddToggle({
-    Name = "Auto Upgrade Workers",
-    Default = false,
-    Callback = function(Value)
-        State.autoUpgradeWorkers = Value
-        if Value then startWorkerUpgrade() end
-    end
-})
-
-WorkerSection:AddToggle({
-    Name = "Auto Unlock Workers",
-    Default = false,
-    Callback = function(Value)
-        State.autoUnlockWorkers = Value
-        if Value then startWorkerUnlock() end
-    end
-})
-
--- Upgrades Tab
-local UpgradesTab = Window:MakeTab({
-    Name = "Upgrades",
-    Icon = "rbxassetid://4483345998"
-})
-
-local UpgradeSection = UpgradesTab:AddSection({
-    Name = "Auto Upgrades"
-})
-
-UpgradeSection:AddToggle({
-    Name = "Auto Upgrade Capacity",
-    Default = false,
-    Callback = function(Value)
-        State.autoUpgradeCapacity = Value
-        if Value then startCapacityUpgrade() end
-    end
-})
-
-UpgradeSection:AddToggle({
-    Name = "Auto Upgrade Drop Level",
-    Default = false,
-    Callback = function(Value)
-        State.autoUpgradeDropLevel = Value
-        if Value then startDropLevelUpgrade() end
-    end
-})
-
-UpgradeSection:AddSlider({
-    Name = "Upgrade Delay",
-    Min = 0.1,
-    Max = 2,
-    Default = 0.5,
-    Color = Color3.fromRGB(255,255,255),
-    Increment = 0.1,
-    Callback = function(Value)
-        State.upgradeDelay = Value
-    end    
-})
-
--- Stats Tab
-local StatsTab = Window:MakeTab({
-    Name = "Stats",
-    Icon = "rbxassetid://4483345998"
-})
-
-local statsLabel = StatsTab:AddLabel("Loading stats...")
-
--- Update Stats
-coroutine.wrap(function()
-    while task.wait(1) do
-        local runtime = os.time() - Stats.startTime
-        local hours = math.floor(runtime / 3600)
-        local minutes = math.floor((runtime % 3600) / 60)
-        local seconds = runtime % 60
-        
-        statsLabel:Set(string.format(
-            "Runtime: %02d:%02d:%02d\nBlocks Mined: %d\nItems Sold: %d\nWorkers Upgraded: %d\nWorkers Unlocked: %d",
-            hours, minutes, seconds,
-            Stats.blocksMined,
-            Stats.itemsSold,
-            Stats.workersUpgraded,
-            Stats.workersUnlocked
-        ))
-    end
-end)()
 
 -- Cleanup
 Players.PlayerRemoving:Connect(function(plr)
-    if plr == player then
+    if plr == Players.LocalPlayer then
         OrionLib:Destroy()
     end
 end)
